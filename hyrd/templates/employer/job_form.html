@@ -69,9 +69,31 @@
     </form>
 </div>
 
+<!-- Processing Modal -->
+<div class="modal fade" id="processingModal" tabindex="-1" aria-labelledby="processingModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="processingModalLabel">Processing PDF</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Please wait while we extract information from your job description...</p>
+                <p class="text-muted small">This may take a few moments.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     document.getElementById('id_document').addEventListener('change', function() {
         if (!this.files || !this.files[0]) return;
+        
+        // Show the processing modal
+        const processingModal = new bootstrap.Modal(document.getElementById('processingModal'));
+        processingModal.show();
         
         const formData = new FormData();
         formData.append('document', this.files[0]);
@@ -85,6 +107,9 @@
         })
         .then(response => response.json())
         .then(data => {
+            // Hide the processing modal
+            processingModal.hide();
+            
             if (data.success) {
                 // Populate form fields with data from the parsed document
                 document.getElementById('id_title').value = data.fields.title || '';
@@ -101,6 +126,9 @@
             }
         })
         .catch(error => {
+            // Hide the processing modal
+            processingModal.hide();
+            
             console.error('Error:', error);
             alert('Failed to process the document. Please check the console for details.');
         });

@@ -135,8 +135,34 @@ class Resume(BaseModel):
     references: Optional[List[Reference]] = None
     projects: Optional[List[Project]] = None
 
+jd_prompt = """You are a specialized information extraction system designed to parse job descriptions from PDF documents and convert them into structured JSON data.
 
-jd_prompt = """You are provided with a PDF of a Job Description and a schema. Your objective is to extract the relevant structured data from the text and format it as a JSON object. Ensure that the extracted data aligns strictly with the given schema. If any information is missing or not explicitly stated, leave the corresponding field empty or null. Aim to capture as much detail as possible from the text."""
+## TASK
+Extract all relevant information from the attached job description PDF and organize it according to the provided schema. Return ONLY a valid JSON object without any additional text, explanation, or markdown formatting.
+
+## EXTRACTION GUIDELINES
+- Extract information as accurately as possible from the provided PDF
+- For list fields like "responsibilities" and "preferred_qualifications", separate distinct items into array elements
+- If information for a field is not explicitly found in the PDF, set that field to null
+- Use your best judgment to categorize requirements into "educational", "technical", and "experience"
+- Avoid fabricating information; only extract what's present in the document
+- Maintain formatting of the original text when appropriate (e.g., don't change "Bachelor's degree" to "bachelor degree")
+- For the "about_the_company" field, include information about the company's mission, values, and background
+- For "job_summary", capture the overall description of the role
+
+## SPECIAL CONSIDERATIONS
+- Pay attention to sections that may have different headings but contain relevant information (e.g., "What You'll Do" might contain responsibilities)
+- When extracting compensation, include salary ranges, benefits, and any additional compensation information
+- Location information may include remote options, specific cities, or regions
+- Job type may be full-time, part-time, contract, etc.
+
+## OUTPUT FORMAT
+Return a single, valid JSON object that conforms to the provided schema:
+- All fields should be populated if information is available
+- Maintain the exact field names as specified in the schema
+- Ensure all lists are properly formatted as JSON arrays
+- The "requirements" field should be an object with the three specified subfields
+"""
 def extract_job_description(pdf_path, prompt=jd_prompt):
     client = genai.Client(api_key="AIzaSyADWAdw5IonFBGhA0uORz_LDkVR4CXdVws")
     filepath = pathlib.Path(pdf_path)
@@ -159,7 +185,41 @@ def extract_job_description(pdf_path, prompt=jd_prompt):
     return data.model_dump()
 
 
-resume_prompt = """You are provided with a PDF of a Resume and a schema. Your objective is to extract the relevant structured data from the text and format it as a JSON object. Ensure that the extracted data aligns strictly with the given schema. If any information is missing or not explicitly stated, leave the corresponding field empty or null. Aim to capture as much detail as possible from the text."""
+# resume_prompt = """You are provided with a PDF of a Resume and a schema. Your objective is to extract the relevant structured data from the text and format it as a JSON object. Ensure that the extracted data aligns with the given schema. If any information is missing or not explicitly stated, leave the corresponding field empty or null. Aim to capture as much detail as possible from the text."""
+resume_prompt = """"You are a specialized information extraction system designed to parse resumes from PDF documents and convert them into structured JSON data.
+
+## TASK
+Extract all relevant information from the attached resume PDF and organize it according to the provided schema. Return ONLY a valid JSON object without any additional text, explanation, or markdown formatting.
+
+## EXTRACTION GUIDELINES
+- Extract information as accurately as possible from the provided PDF
+- For list fields like "highlights", "courses", and "keywords", separate distinct items into array elements
+- If information for a field is not explicitly found in the PDF, set that field to null
+- Preserve the original formatting of names, titles, and technical terms
+- Extract dates in the format provided in the resume; don't attempt to standardize date formats
+- For contact information, ensure privacy by extracting exactly what's in the document without modification
+- For work experiences, education, and other time-based entries, list them in reverse chronological order (most recent first)
+
+## SPECIAL CONSIDERATIONS
+- Personal information (basics): Extract name, job title (label), contact information, and professional summary
+- Work experiences: Capture company names, positions, dates, and accomplishments/responsibilities as highlights
+- Education: Include institutions, degrees, majors, dates, and relevant coursework
+- Skills: Group technical skills, soft skills, and tools/technologies appropriately
+- Projects: Extract both professional and personal projects with descriptions and key achievements
+- Social profiles: Look for LinkedIn, GitHub, portfolio websites, and other professional networks
+- Languages: Note both human languages and programming languages appropriately
+- When extracting locations, separate the components (city, region, country) when possible
+- Look for skill levels or proficiency indicators (e.g., "expert in", "familiar with")
+
+## OUTPUT FORMAT
+Return a single, valid JSON object that conforms to the provided schema:
+- All fields should be populated if information is available
+- Maintain the exact field names as specified in the schema
+- Ensure all dates follow a consistent format within the output
+- Nested objects (like Location within Basics) should be properly structured
+- List items should be formatted as JSON arrays
+- Avoid duplicate entries across different sections
+"""
 def extract_resume(pdf_path, prompt=resume_prompt):
     client = genai.Client(api_key="AIzaSyADWAdw5IonFBGhA0uORz_LDkVR4CXdVws")
     filepath = pathlib.Path(pdf_path)
