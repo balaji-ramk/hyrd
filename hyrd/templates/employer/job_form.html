@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Create Job - {{ company.name }} - Hyrd{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Create New Job for {{ company.name }}</h2>
+    
+    <form method="POST" enctype="multipart/form-data" id="jobForm">
+        {% csrf_token %}
+        
+        <div class="form-group">
+            <label for="{{ form.title.id_for_label }}">{{ form.title.label }}</label>
+            {{ form.title }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.document.id_for_label }}">Upload Job Description (PDF):</label>
+            {{ form.document }}
+            <small class="form-text text-muted">Upload a job description to automatically fill the form fields.</small>
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.about_company.id_for_label }}">{{ form.about_company.label }}</label>
+            {{ form.about_company }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.summary.id_for_label }}">{{ form.summary.label }}</label>
+            {{ form.summary }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.responsibilities.id_for_label }}">{{ form.responsibilities.label }}</label>
+            {{ form.responsibilities }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.educational_requirements.id_for_label }}">{{ form.educational_requirements.label }}</label>
+            {{ form.educational_requirements }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.technical_requirements.id_for_label }}">{{ form.technical_requirements.label }}</label>
+            {{ form.technical_requirements }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.experience_years.id_for_label }}">{{ form.experience_years.label }}</label>
+            {{ form.experience_years }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.preferred_qualifications.id_for_label }}">{{ form.preferred_qualifications.label }}</label>
+            {{ form.preferred_qualifications }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.location.id_for_label }}">{{ form.location.label }}</label>
+            {{ form.location }}
+        </div>
+        
+        <div class="form-group">
+            <label for="{{ form.compensation.id_for_label }}">{{ form.compensation.label }}</label>
+            {{ form.compensation }}
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Create Job</button>
+    </form>
+</div>
+
+<script>
+    document.getElementById('id_document').addEventListener('change', function() {
+        if (!this.files || !this.files[0]) return;
+        
+        const formData = new FormData();
+        formData.append('document', this.files[0]);
+        
+        fetch('{% url "employer:job_autofill" company.id %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Populate form fields with data from the parsed document
+                document.getElementById('id_title').value = data.fields.title || '';
+                document.getElementById('id_about_company').value = data.fields.about_company || '';
+                document.getElementById('id_summary').value = data.fields.summary || '';
+                document.getElementById('id_responsibilities').value = data.fields.responsibilities || '';
+                document.getElementById('id_educational_requirements').value = data.fields.educational_requirements || '';
+                document.getElementById('id_technical_requirements').value = data.fields.technical_requirements || '';
+                document.getElementById('id_preferred_qualifications').value = data.fields.preferred_qualifications || '';
+                document.getElementById('id_location').value = data.fields.location || '';
+                document.getElementById('id_compensation').value = data.fields.compensation || '';
+            } else {
+                alert('Error extracting job details: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to process the document. Please check the console for details.');
+        });
+    });
+</script>
+{% endblock %}

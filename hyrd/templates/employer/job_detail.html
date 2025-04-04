@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.title }} - {{ job.company.name }} - Hyrd{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-5">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>{{ job.title }}</h3>
+                <p class="text-muted mb-0">{{ job.company.name }}</p>
+            </div>
+            <div class="card-body">
+                <p><strong>Location:</strong> {{ job.location }}</p>
+                {% if job.compensation %}
+                <p><strong>Compensation:</strong> {{ job.compensation }}</p>
+                {% endif %}
+                
+                {% if job.summary %}
+                <h5 class="mt-4">Job Summary</h5>
+                <p>{{ job.summary }}</p>
+                {% endif %}
+                
+                {% if job.responsibilities %}
+                <h5 class="mt-4">Responsibilities</h5>
+                <p>{{ job.responsibilities|linebreaks }}</p>
+                {% endif %}
+                
+                {% if job.educational_requirements %}
+                <h5 class="mt-4">Educational Requirements</h5>
+                <p>{{ job.educational_requirements|linebreaks }}</p>
+                {% endif %}
+                
+                {% if job.technical_requirements %}
+                <h5 class="mt-4">Technical Requirements</h5>
+                <p>{{ job.technical_requirements|linebreaks }}</p>
+                {% endif %}
+                
+                {% if job.experience_years %}
+                <h5 class="mt-4">Experience Required</h5>
+                <p>{{ job.experience_years }} years</p>
+                {% endif %}
+                
+                {% if job.preferred_qualifications %}
+                <h5 class="mt-4">Preferred Qualifications</h5>
+                <p>{{ job.preferred_qualifications|linebreaks }}</p>
+                {% endif %}
+                
+                {% if job.about_company %}
+                <h5 class="mt-4">About the Company</h5>
+                <p>{{ job.about_company }}</p>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{% url 'employer:job_list' company_id=job.company.id %}" class="btn btn-secondary">Back to Jobs</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header">
+                <h3>Candidates</h3>
+            </div>
+            <div class="card-body">
+                <form method="post" action="{% url 'employer:select_candidates' job_id=job.id %}">
+                    {% csrf_token %}
+                    
+                    {% if candidates %}
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Select</th>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for application in candidates %}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" name="selected_candidates" value="{{ application.candidate.id }}" class="form-check-input">
+                                </td>
+                                <td>{{ application.candidate.first_name }} {{ application.candidate.last_name }}</td>
+                                <td>{{ application.candidate.email }}</td>
+                                <td>{{ application.status }}</td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#candidateModal{{ application.candidate.id }}">
+                                        View Resume
+                                    </button>
+                                </td>
+                            </tr>
+                            
+                            <!-- Modal for candidate resume -->
+                            <div class="modal fade" id="candidateModal{{ application.candidate.id }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog modal-lg">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">{{ application.candidate.first_name }} {{ application.candidate.last_name }}'s Resume</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            {% if application.candidate.resume %}
+                                                <div class="mb-3">
+                                                    <h6>Contact Information</h6>
+                                                    <p>Email: {{ application.candidate.email }}</p>
+                                                    {% if application.candidate.resume.phone %}
+                                                    <p>Phone: {{ application.candidate.resume.phone }}</p>
+                                                    {% endif %}
+                                                </div>
+                                                
+                                                {% if application.candidate.resume.summary %}
+                                                <div class="mb-3">
+                                                    <h6>Summary</h6>
+                                                    <p>{{ application.candidate.resume.summary }}</p>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                {% if application.candidate.resume.skills %}
+                                                <div class="mb-3">
+                                                    <h6>Skills</h6>
+                                                    <p>{{ application.candidate.resume.skills|linebreaks }}</p>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                {% if application.candidate.resume.experience %}
+                                                <div class="mb-3">
+                                                    <h6>Experience</h6>
+                                                    <p>{{ application.candidate.resume.experience|linebreaks }}</p>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                {% if application.candidate.resume.education %}
+                                                <div class="mb-3">
+                                                    <h6>Education</h6>
+                                                    <p>{{ application.candidate.resume.education|linebreaks }}</p>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                {% if application.candidate.resume.document %}
+                                                <div class="mb-3">
+                                                    <a href="{{ application.candidate.resume.document.url }}" class="btn btn-primary" target="_blank">
+                                                        Download Original Resume
+                                                    </a>
+                                                </div>
+                                                {% endif %}
+                                            {% else %}
+                                                <div class="alert alert-info">
+                                                    This candidate has not uploaded a resume.
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    
+                    <div class="mt-3">
+                        <label class="form-label">Update Status for Selected Candidates:</label>
+                        <select name="status" class="form-select mb-3">
+                            <option value="Applied">Applied</option>
+                            <option value="Shortlisted">Shortlisted</option>
+                            <option value="Interview">Interview</option>
+                            <option value="Rejected">Rejected</option>
+                            <option value="Hired">Hired</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary">Update Status</button>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info">
+                        No candidates have applied for this job yet.
+                    </div>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

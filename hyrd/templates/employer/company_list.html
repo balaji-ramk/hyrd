@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Companies - Hyrd{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Companies</h2>
+    <a href="{% url 'employer:company_create' %}" class="btn btn-primary">Create Company</a>
+</div>
+
+{% if companies %}
+<div class="row">
+    {% for company in companies %}
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">{{ company.name }}</h5>
+                <p class="card-text">{{ company.description|truncatechars:100 }}</p>
+            </div>
+            <div class="card-footer bg-transparent">
+                <a href="{% url 'employer:job_list' company_id=company.id %}" class="btn btn-outline-primary">View Jobs</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    No companies found. Create your first company to get started.
+</div>
+{% endif %}
+{% endblock %}
