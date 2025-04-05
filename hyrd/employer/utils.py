@@ -123,7 +123,7 @@ class Project(BaseModel):
 
 class Resume(BaseModel):
     basics: Optional[Basics] = None
-    work: List[Work] = None
+    work: Optional[List[Work]] = None
     volunteer: Optional[List[Volunteer]] = None
     education: Optional[List[Education]] = None
     awards: Optional[List[Award]] = None
@@ -241,177 +241,166 @@ def extract_resume(pdf_path, prompt=resume_prompt):
     data: Resume = response.parsed
     return data.model_dump()
 
-# job_description=extract_job_description('/content/Software Engineer Intern.pdf')
 
-# resumes = [extract_resume(os.path.join('/content/', res)) for res in os.listdir('/content/') if res.endswith('.pdf')]
+class ResumeRanker:
+    def __init__(self):
+        # Initialize the semantic model for similarity calculations
+        self.SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Define weights for different matching criteria
+        self.weights = {
+            'title': 0.1,
+            'summary': 0.1,
+            'responsibilities': 0.2,
+            'requirements': 0.2,
+            'skills': 0.2,
+            'experience': 0.1,
+            'education': 0.1
+        }
+        
+        # Load NLP model for entity extraction
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except:
+            # If model not found, download it
+            import subprocess
+            subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+            self.nlp = spacy.load("en_core_web_sm")
+    
+    def preprocess_text(self, text):
+        """Clean and normalize text for better matching."""
+        if not text or not isinstance(text, str):
+            return ""
+        
+        # Convert to lowercase and remove extra whitespace
+        text = re.sub(r'\s+', ' ', text.lower().strip())
+        return text
 
-# # Initialize models
-# SEMANTIC_MODEL = SentenceTransformer("all-mpnet-base-v2")
-# nlp = spacy.load("en_core_web_sm")
+    def extract_entities(self, text: str) -> Dict:
+        """Extract skills, education, and locations using spaCy NER."""
+        doc = self.nlp(text)
+        return {
+            'skills': list(set([ent.text for ent in doc.ents if ent.label_ == 'SKILL'])),
+            'degrees': list(set([ent.text for ent in doc.ents if ent.label_ == 'DEGREE'])),
+            'locations': list(set([ent.text for ent in doc.ents if ent.label_ == 'GPE']))
+        }
 
-# class ResumeMatcher:
-#     def __init__(self):
-#         self.weights = {
-#             'title': 0.15,
-#             'summary': 0.15,
-#             'responsibilities': 0.20,
-#             'requirements': 0.20,
-#             'skills': 0.15,
-#             'experience': 0.10,
-#             'education': 0.05,
-#         }
+    def calculate_experience(self, work_history: List[Dict]) -> float:
+        """Calculate total years of experience with date parsing."""
+        total_days = 0
+        for position in work_history:
+            start = dateparser.parse(position.get('Start Date', ''))
+            end = dateparser.parse(position.get('End Date', '') or 'now')
+            if start and end:
+                total_days += (end - start).days
+        return round(total_days / 365.25, 1)
 
-#     def preprocess_text(self, text: str) -> str:
-#         """Clean and normalize text input."""
-#         if not text:
-#             return ""
-#         text = re.sub(r'[^\w\s-]', '', text.lower())
-#         text = re.sub(r'\s+', ' ', text).strip()
-#         return text
+    def calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculate semantic similarity score using SBERT."""
+        emb1 = self.SEMANTIC_MODEL.encode(self.preprocess_text(text1))
+        emb2 = self.SEMANTIC_MODEL.encode(self.preprocess_text(text2))
+        return util.cos_sim(emb1, emb2).item()
 
-#     def extract_entities(self, text: str) -> Dict:
-#         """Extract skills, education, and locations using spaCy NER."""
-#         doc = nlp(text)
-#         return {
-#             'skills': list(set([ent.text for ent in doc.ents if ent.label_ == 'SKILL'])),
-#             'degrees': list(set([ent.text for ent in doc.ents if ent.label_ == 'DEGREE'])),
-#             'locations': list(set([ent.text for ent in doc.ents if ent.label_ == 'GPE']))
-#         }
+    def match_job_resume(self, job: Dict, resume: Dict) -> Dict:
+        """Main matching function with hybrid scoring."""
 
-#     def calculate_experience(self, work_history: List[Dict]) -> float:
-#         """Calculate total years of experience with date parsing."""
-#         total_days = 0
-#         for position in work_history:
-#             start = dateparser.parse(position.get('Start Date', ''))
-#             end = dateparser.parse(position.get('End Date', '') or 'now')
-#             if start and end:
-#                 total_days += (end - start).days
-#         return round(total_days / 365.25, 1)
+        job_text = {
+            "title": self.preprocess_text(job.get("Job Title", "")),
+            "summary": self.preprocess_text(job.get("Job Summary", "")),
+            "responsibilities": self.preprocess_text(job.get("Responsibilities", "")),
+            "requirements": self.preprocess_text(
+                " ".join([
+                    job.get("Requirements", {}).get("Educational", ""),
+                    job.get("Requirements", {}).get("Technical", ""),
+                    job.get("Requirements", {}).get("Experience (Years of experience)", "")
+                ])
+            ),
+            "preferred": self.preprocess_text(job.get("Preferred Qualifications", "")),
+            "location": self.preprocess_text(job.get("Location", "")),
+        }
 
-#     def calculate_similarity(self, text1: str, text2: str) -> float:
-#         """Calculate semantic similarity score using SBERT."""
-#         emb1 = SEMANTIC_MODEL.encode(self.preprocess_text(text1))
-#         emb2 = SEMANTIC_MODEL.encode(self.preprocess_text(text2))
-#         return util.pytorch_cos_sim(emb1, emb2).item()
+        resume_text = {
+            "summary": self.preprocess_text(resume.get("Basics", {}).get("Summary", "")),
+            "work": self.preprocess_text(
+                " ".join([
+                    work.get("Summary", "") + " ".join(work.get("Highlights", []))
+                    for work in resume.get("Work", [])
+                ])
+            ),
+            "education": self.preprocess_text(
+                " ".join([
+                    edu.get("Area of Study", "") + edu.get("Study Type", "")
+                    for edu in resume.get("Education", [])
+                ])
+            ),
+            "skills": self.preprocess_text(
+                " ".join([skill.get("Name", "") for skill in resume.get("Skills", [])])
+            ),
+        }
 
-#     def match_job_resume(self, job: Dict, resume: Dict) -> Dict:
-#         """Main matching function with hybrid scoring."""
+        scores = {
+            'title': self.calculate_similarity(job_text['title'], resume_text['summary']) * 100,
+            'summary': self.calculate_similarity(job_text['summary'], resume_text['summary']) * 100,
+            'responsibilities': self.calculate_similarity(job_text['responsibilities'], resume_text['work']) * 100,
+            'requirements': self.calculate_similarity(job_text['requirements'], resume_text['work']) * 100,
+            'skills': len(set(job_text['requirements'].split()) & set(resume_text['skills'].split())) /
+                      max(len(job_text['requirements'].split()), 1) * 100 if job_text['requirements'] else 0,
+        }
+        
+        # Fix for division by zero error
+        required_experience = float(job.get('Requirements', {}).get('Experience (Years of experience)', 1) or 1)
+        candidate_experience = self.calculate_experience(resume.get('Work', []))
+        
+        # Calculate experience score safely
+        if required_experience > 0:
+            experience_score = min(candidate_experience / required_experience * 100, 100)
+        else:
+            # If no experience required, give full score if candidate has any experience
+            experience_score = 100 if candidate_experience > 0 else 0
+        
+        scores['experience'] = experience_score
+        
+        scores['education'] = 100 if any(
+            edu in job.get('Requirements', {}).get('Educational', '')
+            for edu in resume_text['education'].split()
+        ) else 0
 
-#         # Preprocess job description sections
-#         job_text = {
-#             "title": self.preprocess_text(job.get("Job Title", "")),
-#             "summary": self.preprocess_text(job.get("Job Summary", "")),
-#             "responsibilities": self.preprocess_text(job.get("Responsibilities", "")),
-#             "requirements": self.preprocess_text(
-#                 " ".join([
-#                     job.get("Requirements", {}).get("Educational", ""),
-#                     job.get("Requirements", {}).get("Technical", ""),
-#                     job.get("Requirements", {}).get("Experience (Years of experience)", "")
-#                 ])
-#             ),
-#             "preferred": self.preprocess_text(job.get("Preferred Qualifications", "")),
-#             "location": self.preprocess_text(job.get("Location", "")),
-#         }
+        weighted_score = sum(
+            scores[category] * weight
+            for category, weight in self.weights.items()
+        )
 
-#         # Preprocess resume sections
-#         resume_text = {
-#             "summary": self.preprocess_text(resume.get("Basics", {}).get("Summary", "")),
-#             "work": self.preprocess_text(
-#                 " ".join([
-#                     work.get("Summary", "") + " ".join(work.get("Highlights", []))
-#                     for work in resume.get("Work", [])
-#                 ])
-#             ),
-#             "education": self.preprocess_text(
-#                 " ".join([
-#                     edu.get("Area of Study", "") + edu.get("Study Type", "")
-#                     for edu in resume.get("Education", [])
-#                 ])
-#             ),
-#             "skills": self.preprocess_text(
-#                 " ".join([skill.get("Name", "") for skill in resume.get("Skills", [])])
-#             ),
-#         }
+        # Fix for experience gap calculation
+        required_exp = float(job.get('Requirements', {}).get('Experience (Years of experience)', 0) or 0)
+        experience_gap = max(required_exp - candidate_experience, 0)
 
-#         # Calculate individual scores using semantic similarity and overlap
-#         scores = {
-#             'title': self.calculate_similarity(job_text['title'], resume_text['summary']) * 100,
+        missing = {
+            'skills': list(set(job_text['requirements'].split()) - set(resume_text['skills'].split())),
+            'education': job.get('Requirements', {}).get('Educational', '') if not scores['education'] else [],
+            'experience_gap': experience_gap
+        }
 
-#             'summary': self.calculate_similarity(job_text['summary'], resume_text['summary']) * 100,
+        return {
+            'score': round(weighted_score, 2),
+            'details': scores,
+            'missing': missing
+        }
 
-#             'responsibilities': self.calculate_similarity(job_text['responsibilities'], resume_text['work']) * 100,
+    def rank_resumes(self, job: Dict, resumes: List[Dict]) -> List[Dict]:
+        """Rank resumes by match quality."""
 
-#             'requirements': self.calculate_similarity(job_text['requirements'], resume_text['work']) * 100,
+        ranked = []
 
-#             'skills': len(set(job_text['requirements'].split()) & set(resume_text['skills'].split())) /
-#                       len(job_text['requirements'].split()) * 100 if job_text['requirements'] else 0,
+        for resume in resumes:
 
-#             'experience': min(
-#                 self.calculate_experience(resume.get('Work', [])) /
-#                 float(job.get('Requirements', {}).get('Experience (Years of experience)', 1)) * 100,
-#                 100
-#             ),
+            result = self.match_job_resume(job, resume)
+            ranked.append({
+                'name': resume.get('Basics', {}).get('Name', 'Unnamed'),
+                'score': result['score'],
+                'details': result['details'],
+                'missing': result['missing']
+            })
 
-#             'education': 100 if any(
-#                 edu in job.get('Requirements', {}).get('Educational', '')
-#                 for edu in resume_text['education'].split()
-#             ) else 0,
-#         }
+        ranked = sorted(ranked, key=lambda x: x['score'], reverse=True)
 
-#         # Calculate weighted score
-#         weighted_score = sum(
-#             scores[category] * weight
-#             for category, weight in self.weights.items()
-#         )
-
-#         # Generate missing items report
-#         missing = {
-#             'skills': list(set(job_text['requirements'].split()) - set(resume_text['skills'].split())),
-#             'education': job.get('Requirements', {}).get('Educational', '') if not scores['education'] else [],
-#             'experience_gap': max(
-#                 float(job.get('Requirements', {}).get('Experience (Years of experience)', 0)) -
-#                 self.calculate_experience(resume.get('Work', [])),
-#                 0
-#             )
-#         }
-
-#         return {
-#             'score': round(weighted_score, 2),
-#             'details': scores,
-#             'missing': missing
-#         }
-
-#     def rank_resumes(self, job: Dict, resumes: List[Dict]) -> List[Dict]:
-#         """Rank resumes by match quality."""
-
-#         ranked = []
-
-#         for resume in resumes:
-
-#             result = self.match_job_resume(job, resume)
-#             ranked.append({
-#                 'name': resume.get('Basics', {}).get('Name', 'Unnamed'),
-#                 'score': result['score'],
-#                 'details': result['details'],
-#                 'missing': result['missing']
-#             })
-
-#         # Sort resumes by score in descending order
-#         ranked = sorted(ranked, key=lambda x: x['score'], reverse=True)
-
-#         return ranked
-
-
-#     # Instantiate the matcher
-# matcher = ResumeMatcher()
-
-# # Rank resumes for the given job description
-# ranked_resumes = matcher.rank_resumes(job_description, resumes)
-
-# # Display results
-# print("Resume Ranking Results:\n")
-# for idx, candidate in enumerate(ranked_resumes, 1):
-#     print(f"{idx}. {candidate['name']} - Score: {candidate['score']}%")
-#     print(f"Details: {candidate['details']}")
-#     print(f"Missing: {candidate['missing']}\n")
-
+        return ranked

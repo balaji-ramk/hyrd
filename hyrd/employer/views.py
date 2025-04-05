@@ -3,7 +3,7 @@ import os
 import tempfile
 from .models import User, Company, Job, AppliedJob
 from .forms import LoginForm, CompanyForm, JobForm
-from .utils import extract_job_description
+from .utils import extract_job_description, ResumeRanker
 from django.http import JsonResponse
 
 def login_view(request):
@@ -141,6 +141,11 @@ def job_detail(request, job_id):
     # Get real candidates who applied for this job
     applied_candidates = AppliedJob.objects.filter(job=job).select_related('candidate')
     
+    # Check if we should clear the ranking results
+    if request.GET.get('clear_ranking') == 'true':
+        if 'ranked_candidates' in request.session:
+            del request.session['ranked_candidates']
+    
     return render(request, 'employer/job_detail.html', {
         'job': job,
         'candidates': applied_candidates,
@@ -210,4 +215,166 @@ def job_autofill(request, company_id):
             'success': False,
             'error': str(e)
         })
+
+def rank_candidates(request, job_id):
+    user_id = request.session.get('user_id')
+    if not user_id:
+        return redirect('employer:login')
+    
+    try:
+        user = User.objects.get(id=user_id)
+        if not user.is_employer:
+            return redirect('employer:login')
+    except User.DoesNotExist:
+        return redirect('employer:login')
+    
+    job = get_object_or_404(Job, id=job_id)
+    
+    # Get candidates who applied for this job
+    applications = AppliedJob.objects.filter(job=job).select_related('candidate__resume')
+    
+    # Prepare job data
+    job_data = {
+        "Job Title": job.title,
+        "Job Summary": job.summary,
+        "Responsibilities": job.responsibilities,
+        "Requirements": {
+            "Educational": job.educational_requirements,
+            "Technical": job.technical_requirements,
+            "Experience (Years of experience)": str(job.experience_years) if job.experience_years else "0"
+        },
+        "Preferred Qualifications": job.preferred_qualifications,
+        "Location": job.location
+    }
+    
+    # Prepare resume data for each candidate
+    resumes_data = []
+    for application in applications:
+        candidate = application.candidate
+        try:
+            resume = candidate.resume
+            if resume:
+                # Convert resume fields to the expected format
+                resume_data = {
+                    "Basics": {
+                        "Name": candidate.first_name + " " + candidate.last_name if candidate.last_name else candidate.first_name,
+                        "Email": candidate.email,
+                        "Phone": resume.phone,
+                        "Summary": resume.summary
+                    },
+                    "Work": [],
+                    "Education": [],
+                    "Skills": []
+                }
+                
+                # Parse experience text into work history
+                if resume.experience:
+                    # Simple parsing of experience text - this is a basic implementation
+                    # In a real app, you'd want more sophisticated parsing
+                    experience_blocks = resume.experience.split('\n\n')
+                    for block in experience_blocks:
+                        if block.strip():
+                            lines = block.strip().split('\n')
+                            if len(lines) >= 2:
+                                position_company = lines[0].split(' at ')
+                                position = position_company[0] if len(position_company) > 0 else ""
+                                company = position_company[1] if len(position_company) > 1 else ""
+                                
+                                # Try to extract dates
+                                dates = ""
+                                start_date = ""
+                                end_date = ""
+                                for line in lines[1:]:
+                                    if " - " in line and not line.startswith("•"):
+                                        dates = line
+                                        date_parts = dates.split(" - ")
+                                        start_date = date_parts[0]
+                                        end_date = date_parts[1] if len(date_parts) > 1 else "Present"
+                                        break
+                                
+                                # Get highlights
+                                highlights = []
+                                for line in lines:
+                                    if line.startswith("•"):
+                                        highlights.append(line[1:].strip())
+                                
+                                # Create work entry
+                                work_entry = {
+                                    "Name": company,
+                                    "Position": position,
+                                    "Start Date": start_date,
+                                    "End Date": end_date,
+                                    "Summary": "",
+                                    "Highlights": highlights
+                                }
+                                resume_data["Work"].append(work_entry)
+                
+                # Parse skills
+                if resume.skills:
+                    skills_lines = resume.skills.strip().split('\n')
+                    for skill_line in skills_lines:
+                        if ":" in skill_line:
+                            skill_name, keywords = skill_line.split(":", 1)
+                            keywords = [k.strip() for k in keywords.split(',')]
+                            resume_data["Skills"].append({
+                                "Name": skill_name.strip(),
+                                "Keywords": keywords
+                            })
+                        else:
+                            resume_data["Skills"].append({
+                                "Name": skill_line.strip(),
+                                "Keywords": []
+                            })
+                
+                # Parse education
+                if resume.education:
+                    education_blocks = resume.education.split('\n\n')
+                    for block in education_blocks:
+                        if block.strip():
+                            lines = block.strip().split('\n')
+                            if lines:
+                                institution = lines[0]
+                                area = ""
+                                degree = ""
+                                start_date = ""
+                                end_date = ""
+                                
+                                for i, line in enumerate(lines[1:], 1):
+                                    if "in" in line and not line.startswith("•"):
+                                        degree_parts = line.split(" in ")
+                                        degree = degree_parts[0]
+                                        area = degree_parts[1] if len(degree_parts) > 1 else ""
+                                    elif " - " in line and not line.startswith("•"):
+                                        date_parts = line.split(" - ")
+                                        start_date = date_parts[0]
+                                        end_date = date_parts[1] if len(date_parts) > 1 else ""
+                                
+                                education_entry = {
+                                    "Institution": institution,
+                                    "Area of Study": area,
+                                    "Study Type": degree,
+                                    "Start Date": start_date,
+                                    "End Date": end_date
+                                }
+                                resume_data["Education"].append(education_entry)
+                
+                resumes_data.append(resume_data)
+        except Exception as e:
+            # If there's an error processing a resume, skip it
+            print(f"Error processing resume for {candidate.email}: {str(e)}")
+    
+    # Initialize the resume ranker
+    ranker = ResumeRanker()
+    
+    # Rank the resumes
+    if resumes_data:
+        ranked_results = ranker.rank_resumes(job_data, resumes_data)
+        
+        # Store the ranking results in the session for display
+        request.session['ranked_candidates'] = ranked_results
+        
+        return redirect('employer:job_detail', job_id=job.id)
+    else:
+        # No valid resumes to rank
+        return redirect('employer:job_detail', job_id=job.id)
 
